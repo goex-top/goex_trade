@@ -8,23 +8,23 @@ import (
 )
 
 type FutureTradeManager struct {
-	exchange     goex.FutureRestAPI //交易所
-	pair         goex.CurrencyPair  //货币对
-	contractType string             //合约类型
-	initAccount  *Account           //初始账户
-	//opMode       OpMode            //下单方式:吃单|挂单
-	//maxSpace     float64           //挂单失效距离:
-	slidePrice                      float64 //下单滑动价
-	slideGrowthRate                 float64 //下单滑动价增长率
-	openPositionSlideGrowthRateMax  float64 //下单滑动价最大增长率
-	coverPositionSlideGrowthRateMax float64 //下单滑动价最大增长率
+	exchange                        goex.FutureRestAPI //交易所
+	pair                            goex.CurrencyPair  //货币对
+	contractType                    string             //合约类型
+	initAccount                     *Account           //初始账户
+	opMode                          OpMode             //下单方式:吃单|挂单
+	slidePrice                      float64            //下单滑动价
+	slideGrowthRate                 float64            //下单滑动价增长率
+	openPositionSlideGrowthRateMax  float64            //下单滑动价最大增长率
+	coverPositionSlideGrowthRateMax float64            //下单滑动价最大增长率
+	retryDelayMs                    time.Duration      //失败重试(毫秒)
+	logger                          *logrus.Logger     //logger
+	priceDot                        int                //价格小数精度
+	amountDot                       int                //数量小数精度
+	marginLevel                     int                //杆杠大小
+	//maxSpace     float64           //挂单失效距离
 	//maxAmount    float64           //开仓最大单次下单量
 	//minStocks    float64           //最小交易数量
-	retryDelayMs time.Duration  //失败重试(毫秒)
-	logger       *logrus.Logger //logger
-	priceDot     int            //价格小数精度
-	amountDot    int            //数量小数精度
-	marginLevel  int            //杆杠大小
 }
 
 type SummaryPosition struct {
@@ -47,7 +47,7 @@ func NewFutureTradeManager(
 	exchange goex.FutureRestAPI,
 	pair goex.CurrencyPair,
 	contractType string,
-	//opMode OpMode,
+	opMode OpMode,
 	//maxSpace float64,
 	slidePrice float64,
 	openPositionSlideGrowthRateMax float64,
@@ -68,7 +68,7 @@ func NewFutureTradeManager(
 		pair:         pair,
 		contractType: contractType,
 		initAccount:  nil,
-		//opMode:       opMode,
+		opMode:       opMode,
 		//maxAmount:    maxAmount,
 		//maxSpace:     maxSpace,
 		slidePrice:                      slidePrice,
@@ -215,7 +215,7 @@ func (future *FutureTradeManager) cover(direction int, opAmount, price float64) 
 	var positions = make([]goex.FuturePosition, 0)
 	var isFirst = true
 	var orderId string
-	var err error
+	//var err error
 	var step = 0.0
 	var index = 0
 	for {
@@ -245,7 +245,7 @@ func (future *FutureTradeManager) cover(direction int, opAmount, price float64) 
 				continue
 			}
 			if direction == goex.CLOSE_BUY {
-				orderId, err = future.exchange.PlaceFutureOrder(
+				orderId, _ = future.exchange.PlaceFutureOrder(
 					future.pair,
 					future.contractType,
 					utils.Float64RoundString(price-future.slidePrice*(1+step), future.priceDot),
@@ -256,7 +256,7 @@ func (future *FutureTradeManager) cover(direction int, opAmount, price float64) 
 				)
 				n++
 			} else if direction == goex.CLOSE_SELL {
-				orderId, err = future.exchange.PlaceFutureOrder(
+				orderId, _ = future.exchange.PlaceFutureOrder(
 					future.pair,
 					future.contractType,
 					utils.Float64RoundString(price+future.slidePrice*(1+step), future.priceDot),

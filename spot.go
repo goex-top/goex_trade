@@ -11,12 +11,13 @@ import (
 type SpotTradeManager struct {
 	exchange     goex.API          //交易所
 	pair         goex.CurrencyPair //货币对
-	opMode       OpMode            //下单方式:吃单|挂单
-	maxSpace     float64           //挂单失效距离:
+	opMode       OpMode            //下单方式:吃单|挂单|挂单等待
+	maxSpace     float64           //挂单失效距离
 	slidePrice   float64           //下单滑动价
 	maxAmount    float64           //开仓最大单次下单量
 	minStocks    float64           //最小交易数量
 	retryDelayMs time.Duration     //失败重试(毫秒)
+	waitMakeMs   int               //失败重试(毫秒)
 	logger       *logrus.Logger    //logger
 	priceDot     int               //价格小数精度
 	amountDot    int               //数量小数精度
@@ -60,6 +61,7 @@ func NewSportManager(
 	maxAmount float64,
 	minStocks float64,
 	retryDelayMs int,
+	waitMakeMs int,
 	logger *logrus.Logger,
 	priceDot int,
 	amountDot int,
@@ -77,6 +79,7 @@ func NewSportManager(
 		slidePrice:   slidePrice,
 		minStocks:    minStocks,
 		retryDelayMs: time.Duration(retryDelayMs) * time.Millisecond,
+		waitMakeMs:   waitMakeMs,
 		logger:       logger,
 		priceDot:     priceDot,
 		amountDot:    amountDot,
@@ -188,7 +191,7 @@ func (spot *SpotTradeManager) tradeFunc(tradeType goex.TradeSide) (func(amount, 
 	panic("UNKNOWN tradeType")
 }
 
-func (spot *SpotTradeManager) trade(tradeType goex.TradeSide, tradeAmount float64) *goex.Order {
+func (spot *SpotTradeManager) trade(opMode OpMode, tradeType goex.TradeSide, tradeAmount float64) *goex.Order {
 	var initAccount = spot.GetAccount(false)
 	var nowAccount = initAccount
 	var order = new(goex.Order)
@@ -203,16 +206,42 @@ func (spot *SpotTradeManager) trade(tradeType goex.TradeSide, tradeAmount float6
 		var ticker = utils.RE(spot.exchange.GetTicker, spot.pair).(*goex.Ticker)
 		var tradePrice = 0.0
 		if isBuy {
-			if spot.opMode == OPMODE_TAKE {
+			if opMode == OPMODE_TAKE {
 				tradePrice = utils.Float64Round(ticker.Sell+spot.slidePrice, spot.priceDot)
-			} else if spot.opMode == OPMODE_MAKE {
+			} else if opMode == OPMODE_MAKE {
 				tradePrice = utils.Float64Round(ticker.Buy+spot.slidePrice, spot.priceDot)
+			} else if opMode == OPMODE_MAKE_WAIT {
+				tradePrice = utils.Float64Round(ticker.Buy, spot.priceDot)
 			}
 		} else {
-			if spot.opMode == OPMODE_TAKE {
+			if opMode == OPMODE_TAKE {
 				tradePrice = utils.Float64Round(ticker.Buy-spot.slidePrice, spot.priceDot)
-			} else if spot.opMode == OPMODE_MAKE {
+			} else if opMode == OPMODE_MAKE {
 				tradePrice = utils.Float64Round(ticker.Sell-spot.slidePrice, spot.priceDot)
+			} else if opMode == OPMODE_MAKE_WAIT {
+				tradePrice = utils.Float64Round(ticker.Sell, spot.priceDot)
+			}
+		}
+		if opMode == OPMODE_MAKE_WAIT { //if make_wait fail, change to make
+			for wait := 0; wait < spot.waitMakeMs/int(spot.retryDelayMs.Nanoseconds()/time.Millisecond.Nanoseconds()); wait++ {
+				order, err = tradeFunc(utils.Float64RoundString(tradeAmount, spot.amountDot), utils.Float64RoundString(tradePrice, spot.priceDot), spot.pair)
+				if err != nil {
+					time.Sleep(spot.retryDelayMs)
+					continue
+				}
+				for ; wait < spot.waitMakeMs/int(spot.retryDelayMs.Nanoseconds()/time.Millisecond.Nanoseconds()); wait++ {
+					order = utils.RE(spot.exchange.GetOneOrder, order.OrderID2, spot.pair).(*goex.Order)
+					if order.Status == goex.ORDER_FINISH {
+						return order
+					} else {
+						time.Sleep(spot.retryDelayMs)
+						continue
+					}
+				}
+				if wait >= spot.waitMakeMs/int(spot.retryDelayMs.Nanoseconds()/time.Millisecond.Nanoseconds()) && order.Status != goex.ORDER_FINISH {
+					utils.RE(spot.exchange.CancelOrder, order.OrderID2, spot.pair)
+					return spot.trade(OPMODE_MAKE, tradeType, tradeAmount-order.DealAmount) //递归
+				}
 			}
 		}
 
@@ -242,7 +271,7 @@ func (spot *SpotTradeManager) trade(tradeType goex.TradeSide, tradeAmount float6
 				spot.CancelPendingOrders(tradeType)
 			}
 		} else {
-			if spot.opMode == OPMODE_TAKE || (math.Abs(tradePrice-prePrice) > spot.maxSpace) {
+			if opMode == OPMODE_TAKE || (math.Abs(tradePrice-prePrice) > spot.maxSpace) {
 				order = nil
 				spot.CancelAllPendingOrders()
 			} else {
@@ -268,9 +297,9 @@ func (spot *SpotTradeManager) trade(tradeType goex.TradeSide, tradeAmount float6
 }
 
 func (spot *SpotTradeManager) Buy(amount float64) {
-	spot.trade(goex.BUY, amount)
+	spot.trade(spot.opMode, goex.BUY, amount)
 }
 
 func (spot *SpotTradeManager) Sell(amount float64) {
-	spot.trade(goex.SELL, amount)
+	spot.trade(spot.opMode, goex.SELL, amount)
 }
