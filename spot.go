@@ -21,6 +21,7 @@ type SpotTradeManager struct {
 	logger       *logrus.Logger    //logger
 	priceDot     int               //价格小数精度
 	amountDot    int               //数量小数精度
+	waitFrozen   bool              //数量小数精度
 }
 
 type OpMode int
@@ -65,6 +66,7 @@ func NewSportManager(
 	logger *logrus.Logger,
 	priceDot int,
 	amountDot int,
+	waitFrozen bool,
 ) *SpotTradeManager {
 	if logger == nil {
 		logger = logrus.New()
@@ -83,6 +85,7 @@ func NewSportManager(
 		logger:       logger,
 		priceDot:     priceDot,
 		amountDot:    amountDot,
+		waitFrozen:   waitFrozen,
 	}
 }
 
@@ -192,7 +195,7 @@ func (spot *SpotTradeManager) tradeFunc(tradeType goex.TradeSide) (func(amount, 
 }
 
 func (spot *SpotTradeManager) trade(opMode OpMode, tradeType goex.TradeSide, tradeAmount float64) *goex.Order {
-	var initAccount = spot.GetAccount(false)
+	var initAccount = spot.GetAccount(spot.waitFrozen)
 	var nowAccount = initAccount
 	var order = new(goex.Order)
 	var prePrice = 0.0
@@ -250,7 +253,7 @@ func (spot *SpotTradeManager) trade(opMode OpMode, tradeType goex.TradeSide, tra
 				isFirst = false
 				firstPrice = tradePrice
 			} else {
-				nowAccount = spot.GetAccount(false)
+				nowAccount = spot.GetAccount(spot.waitFrozen)
 			}
 			var doAmount = 0.0
 			if isBuy {
@@ -296,10 +299,10 @@ func (spot *SpotTradeManager) trade(opMode OpMode, tradeType goex.TradeSide, tra
 	}
 }
 
-func (spot *SpotTradeManager) Buy(amount float64) {
-	spot.trade(spot.opMode, goex.BUY, amount)
+func (spot *SpotTradeManager) Buy(amount float64) *goex.Order {
+	return spot.trade(spot.opMode, goex.BUY, amount)
 }
 
-func (spot *SpotTradeManager) Sell(amount float64) {
-	spot.trade(spot.opMode, goex.SELL, amount)
+func (spot *SpotTradeManager) Sell(amount float64) *goex.Order {
+	return spot.trade(spot.opMode, goex.SELL, amount)
 }

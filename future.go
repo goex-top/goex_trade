@@ -65,22 +65,22 @@ func NewFutureTradeManager(
 	}
 	utils.SetDelay(retryDelayMs)
 	mgr := &FutureTradeManager{
-		exchange:     exchange,
-		pair:         pair,
-		contractType: contractType,
-		initAccount:  nil,
-		opMode:       opMode,
-		//maxAmount:    maxAmount,
-		//maxSpace:     maxSpace,
+		exchange:                        exchange,
+		pair:                            pair,
+		contractType:                    contractType,
+		initAccount:                     nil,
+		opMode:                          opMode,
 		slidePrice:                      slidePrice,
 		slideGrowthRate:                 slideGrowthRate,
 		openPositionSlideGrowthRateMax:  openPositionSlideGrowthRateMax,
 		coverPositionSlideGrowthRateMax: coverPositionSlideGrowthRateMax,
+		retryDelayMs:                    time.Duration(retryDelayMs) * time.Millisecond,
+		logger:                          logger,
+		priceDot:                        priceDot,
+		amountDot:                       amountDot,
+		//maxAmount:    maxAmount,
+		//maxSpace:     maxSpace,
 		//minStocks:    minStocks,
-		retryDelayMs: time.Duration(retryDelayMs) * time.Millisecond,
-		logger:       logger,
-		priceDot:     priceDot,
-		amountDot:    amountDot,
 	}
 	mgr.initAccount = mgr.GetAccount()
 	return mgr
