@@ -50,6 +50,7 @@ func NewFutureTradeManager(
 	opMode OpMode,
 	//maxSpace float64,
 	slidePrice float64,
+	slideGrowthRate float64,
 	openPositionSlideGrowthRateMax float64,
 	coverPositionSlideGrowthRateMax float64,
 	//maxAmount float64,
@@ -72,6 +73,7 @@ func NewFutureTradeManager(
 		//maxAmount:    maxAmount,
 		//maxSpace:     maxSpace,
 		slidePrice:                      slidePrice,
+		slideGrowthRate:                 slideGrowthRate,
 		openPositionSlideGrowthRateMax:  openPositionSlideGrowthRateMax,
 		coverPositionSlideGrowthRateMax: coverPositionSlideGrowthRateMax,
 		//minStocks:    minStocks,
@@ -158,7 +160,7 @@ func (future *FutureTradeManager) open(direction int, price, opAmount float64) *
 			future.exchange.PlaceFutureOrder(
 				future.pair,
 				future.contractType,
-				utils.Float64RoundString(price+future.slidePrice*(1+future.slideGrowthRate), future.priceDot),
+				utils.Float64RoundString(price+future.slidePrice*(1+step), future.priceDot),
 				utils.Float64RoundString(amount, future.amountDot),
 				goex.OPEN_BUY,
 				0,
@@ -168,7 +170,7 @@ func (future *FutureTradeManager) open(direction int, price, opAmount float64) *
 			future.exchange.PlaceFutureOrder(
 				future.pair,
 				future.contractType,
-				utils.Float64RoundString(price-future.slidePrice*(1+future.slideGrowthRate), future.priceDot),
+				utils.Float64RoundString(price-future.slidePrice*(1+step), future.priceDot),
 				utils.Float64RoundString(amount, future.amountDot),
 				goex.OPEN_SELL,
 				0,
