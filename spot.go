@@ -175,6 +175,7 @@ func (spot *SpotTradeManager) GetAccount(waitFrozen bool) *Account {
 		}
 		time.Sleep(spot.retryDelayMs)
 	}
+	account.Pair = spot.pair
 	return account
 }
 
@@ -197,7 +198,7 @@ func (spot *SpotTradeManager) tradeFunc(tradeType goex.TradeSide) (func(amount, 
 func (spot *SpotTradeManager) trade(opMode OpMode, tradeType goex.TradeSide, tradeAmount float64) *goex.Order {
 	var initAccount = spot.GetAccount(spot.waitFrozen)
 	var nowAccount = initAccount
-	var order = new(goex.Order)
+	var order *goex.Order = nil
 	var prePrice = 0.0
 	var firstPrice = 0.0
 	var dealAmount = 0.0
@@ -228,6 +229,7 @@ func (spot *SpotTradeManager) trade(opMode OpMode, tradeType goex.TradeSide, tra
 		if opMode == OPMODE_MAKE_WAIT { //if make_wait fail, change to make
 			for wait := 0; wait < spot.waitMakeMs/int(spot.retryDelayMs.Nanoseconds()/time.Millisecond.Nanoseconds()); wait++ {
 				order, err = tradeFunc(utils.Float64RoundString(tradeAmount, spot.amountDot), utils.Float64RoundString(tradePrice, spot.priceDot), spot.pair)
+				spot.logger.Infof("[ %-4s ] %s @ %s", tradeType.String(), utils.Float64RoundString(tradeAmount, spot.amountDot), utils.Float64RoundString(tradePrice, spot.priceDot))
 				if err != nil {
 					time.Sleep(spot.retryDelayMs)
 					continue
@@ -257,19 +259,27 @@ func (spot *SpotTradeManager) trade(opMode OpMode, tradeType goex.TradeSide, tra
 			}
 			var doAmount = 0.0
 			if isBuy {
-				diffMoney = utils.Float64Round(initAccount.Balance-nowAccount.Balance, 4)
-				dealAmount = utils.Float64Round(nowAccount.Stocks-initAccount.Stocks, 8) // 如果保留小数过少，会引起在小交易量交易时，计算出的成交价格误差较大。
-				doAmount = math.Min(math.Min(spot.maxAmount, tradeAmount-dealAmount), utils.Float64Round((nowAccount.Balance*0.95)/tradePrice, 4))
+				diffMoney = utils.Float64Round(initAccount.Balance-nowAccount.Balance, 8)
+				dealAmount = utils.Float64Round(nowAccount.Stocks-initAccount.Stocks, spot.amountDot*2) // 如果保留小数过少，会引起在小交易量交易时，计算出的成交价格误差较大。
+				doAmount = math.Min(math.Min(spot.maxAmount, tradeAmount-dealAmount), utils.Float64Round((nowAccount.Balance*0.95)/tradePrice, spot.amountDot))
 			} else {
-				diffMoney = utils.Float64Round(nowAccount.Balance-initAccount.Balance, 4)
-				dealAmount = utils.Float64Round(initAccount.Stocks-nowAccount.Stocks, 8)
+				diffMoney = utils.Float64Round(nowAccount.Balance-initAccount.Balance, 8)
+				dealAmount = utils.Float64Round(initAccount.Stocks-nowAccount.Stocks, spot.amountDot*2)
 				doAmount = math.Min(math.Min(spot.maxAmount, tradeAmount-dealAmount), nowAccount.Stocks)
 			}
+			spot.logger.Infoln(tradeType.String(), "diffMoney:", diffMoney, "dealAmount:", dealAmount, "doAmount:", doAmount, "balance:", utils.Float64RoundString(nowAccount.Balance, 8))
+
 			if doAmount < spot.minStocks {
 				break
 			}
 			prePrice = tradePrice
 			order, err = tradeFunc(utils.Float64RoundString(doAmount, spot.amountDot), utils.Float64RoundString(tradePrice, spot.priceDot), spot.pair)
+			spot.logger.Infof("[ %-4s ] %s @ %s, balance:%s", tradeType.String(),
+				utils.Float64RoundString(tradeAmount, spot.amountDot),
+				utils.Float64RoundString(tradePrice, spot.priceDot),
+				utils.Float64RoundString(nowAccount.Balance, 8),
+			)
+
 			if err != nil {
 				spot.CancelPendingOrders(tradeType)
 			}
@@ -277,6 +287,9 @@ func (spot *SpotTradeManager) trade(opMode OpMode, tradeType goex.TradeSide, tra
 			if opMode == OPMODE_TAKE || (math.Abs(tradePrice-prePrice) > spot.maxSpace) {
 				order = nil
 				spot.CancelAllPendingOrders()
+				if math.Abs(tradePrice-prePrice) > spot.maxSpace {
+					spot.logger.Warningf("step over max space, tradePrice:%s, prePrice:%s, spot.maxSpace:%f", utils.Float64RoundString(tradePrice, spot.priceDot), utils.Float64RoundString(prePrice, spot.priceDot), spot.maxSpace)
+				}
 			} else {
 				var ord = spot.StripOrders(order.OrderID2)
 				if ord == nil {
@@ -300,9 +313,17 @@ func (spot *SpotTradeManager) trade(opMode OpMode, tradeType goex.TradeSide, tra
 }
 
 func (spot *SpotTradeManager) Buy(amount float64) *goex.Order {
+	if amount < spot.minStocks {
+		spot.logger.Errorf("amount < minStocks : %s < %s", utils.Float64RoundString(amount, spot.amountDot), utils.Float64RoundString(spot.minStocks, spot.amountDot))
+		return nil
+	}
 	return spot.trade(spot.opMode, goex.BUY, amount)
 }
 
 func (spot *SpotTradeManager) Sell(amount float64) *goex.Order {
+	if amount < spot.minStocks {
+		spot.logger.Errorf("amount < minStocks : %s < %s", utils.Float64RoundString(amount, spot.amountDot), utils.Float64RoundString(spot.minStocks, spot.amountDot))
+		return nil
+	}
 	return spot.trade(spot.opMode, goex.SELL, amount)
 }
